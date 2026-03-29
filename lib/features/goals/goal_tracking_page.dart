@@ -645,7 +645,8 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
                           child: CircularProgressIndicator(),
                         ));
                       }
-                      final records = snapshot.data!;
+                      // 展示时过滤掉不足 1 分钟的碎片（计入统计但不展示）
+                      final records = snapshot.data!.where((r) => r.duration >= 60000).toList();
                       if (records.isEmpty) {
                         return Padding(
                           padding: const EdgeInsets.all(16),

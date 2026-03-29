@@ -143,7 +143,9 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
             // 活动记录列表（直接内联到 SliverList）
             recordsAsync.when(
               data: (records) {
-                if (records.isEmpty) {
+                // 展示时过滤掉不足 1 分钟的碎片（计入统计但不展示）
+                final displayRecords = records.where((r) => r.duration >= 60000).toList();
+                if (displayRecords.isEmpty) {
                   return SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 40),
@@ -164,10 +166,10 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         if (index.isOdd) return const SizedBox(height: 8);
-                        final record = records[index ~/ 2];
+                        final record = displayRecords[index ~/ 2];
                         return _ActivityRow(record: record, goalId: widget.goal.id);
                       },
-                      childCount: records.length * 2 - 1,
+                      childCount: displayRecords.length * 2 - 1,
                     ),
                   ),
                 );
@@ -869,13 +871,12 @@ class _GoalReviewSection extends ConsumerWidget {
       } else if (hasEntertainLabel) {
         distractionApps[record.appName] = (distractionApps[record.appName] ?? 0) + record.duration;
         totalEntertainTime += record.duration;
-      } else {
-        // 未打标签的，归为其他
-        totalEffectiveTime += record.duration;
       }
+      // 未打标签的不计入任何类别
     }
 
-    final totalTime = totalEffectiveTime + totalEntertainTime;
+    // 分母用所有记录总时长，未打标签的时间也算进去
+    final totalTime = records.fold<int>(0, (sum, r) => sum + r.duration);
     final effectiveRatio = totalTime > 0 ? totalEffectiveTime / totalTime : 0.0;
 
     // 分心 App 按时长降序排序
