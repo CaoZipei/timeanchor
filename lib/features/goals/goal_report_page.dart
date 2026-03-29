@@ -1,0 +1,1158 @@
+import 'dart:async';
+import 'package:drift/drift.dart' show innerJoin;
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/database/app_database.dart';
+
+
+
+// ─── Provider：记录的标签（可刷新） ───
+final _recordLabelsProvider = FutureProvider.autoDispose
+    .family<UserLabel?, int>((ref, recordId) async {
+  final db = ref.watch(databaseProvider);
+  final mappings = await db.getLabelsByRecord(recordId);
+  if (mappings.isEmpty) return null;
+  // 取第一个标签
+  final labels = await db.getAllLabels();
+  final labelId = mappings.first.labelId;
+  return labels.where((l) => l.id == labelId).firstOrNull;
+});
+
+// ─── Provider：所有标签列表 ───
+final _allLabelsProvider = FutureProvider.autoDispose<List<UserLabel>>((ref) {
+  return ref.watch(databaseProvider).getAllLabels();
+});
+
+/// 目标报告页面
+class GoalReportPage extends ConsumerStatefulWidget {
+  final Goal goal;
+  const GoalReportPage({super.key, required this.goal});
+
+  @override
+  ConsumerState<GoalReportPage> createState() => _GoalReportPageState();
+}
+
+class _GoalReportPageState extends ConsumerState<GoalReportPage> {
+  Timer? _ticker;
+  int _elapsedSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.goal.status == 'active') {
+      _elapsedSeconds = ((DateTime.now().millisecondsSinceEpoch - widget.goal.startTime) / 1000)
+          .round()
+          .clamp(0, 999999);
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _elapsedSeconds++);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  String _formatElapsed(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    if (h > 0) {
+      return '${h}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final recordsAsync = ref.watch(_goalRecordsProvider(widget.goal.id));
+    final statsAsync = ref.watch(_goalStatsProvider(widget.goal.id));
+
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      appBar: AppBar(
+        title: Text(widget.goal.title),
+        backgroundColor: theme.colorScheme.surface,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        bottom: false,
+        child: CustomScrollView(
+          slivers: [
+            // 统计概览
+            SliverToBoxAdapter(
+              child: statsAsync.when(
+                data: (stats) => _buildStatsOverview(context, theme, stats),
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (e, _) => Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('加载失败: $e'),
+                ),
+              ),
+            ),
+
+            // 目标复盘（仅已完成的目标显示）
+            if (widget.goal.status == 'completed') ...[
+              const SliverToBoxAdapter(child: Divider(height: 24)),
+              SliverToBoxAdapter(
+                child: _GoalReviewSection(
+                    goal: widget.goal,
+                    recordsAsync: recordsAsync,
+                    statsAsync: statsAsync),
+              ),
+            ],
+
+            // 活动记录标题
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Row(
+                  children: [
+                    Text(
+                      '活动记录',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '点击可打标签',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // 活动记录列表（直接内联到 SliverList）
+            recordsAsync.when(
+              data: (records) {
+                if (records.isEmpty) {
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Center(
+                        child: Text(
+                          '目标期间没有使用记录',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        if (index.isOdd) return const SizedBox(height: 8);
+                        final record = records[index ~/ 2];
+                        return _ActivityRow(record: record, goalId: widget.goal.id);
+                      },
+                      childCount: records.length * 2 - 1,
+                    ),
+                  ),
+                );
+              },
+              loading: () => const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              ),
+              error: (e, _) => SliverToBoxAdapter(
+                child: Center(child: Text('加载失败: $e')),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsOverview(BuildContext context, ThemeData theme, Map<String, int> stats) {
+    final totalTime = stats['total'] ?? 0;
+    final effectiveTime = stats['effective'] ?? 0;
+    final entertainTime = stats['entertain'] ?? 0;
+    final otherTime = totalTime - effectiveTime - entertainTime;
+
+    final totalMin = totalTime ~/ 60000;
+    final effectiveMin = effectiveTime ~/ 60000;
+    final entertainMin = entertainTime ~/ 60000;
+    final otherMin = otherTime ~/ 60000;
+
+    final isFreeMode = widget.goal.plannedDuration == 0;
+
+    // 构建时间段文字
+    final startDt = DateTime.fromMillisecondsSinceEpoch(widget.goal.startTime);
+    final startStr = '${startDt.month.toString().padLeft(2, '0')}-${startDt.day.toString().padLeft(2, '0')} '
+        '${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')}';
+
+    String timeRangeStr;
+    if (widget.goal.endTime != null) {
+      final endDt = DateTime.fromMillisecondsSinceEpoch(widget.goal.endTime!);
+      final endStr = startDt.day == endDt.day
+          ? '${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}'
+          : '${endDt.month.toString().padLeft(2, '0')}-${endDt.day.toString().padLeft(2, '0')} '
+            '${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}';
+      timeRangeStr = '$startStr - $endStr';
+    } else {
+      timeRangeStr = '$startStr（进行中）';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 时间段
+          Row(
+            children: [
+              Icon(
+                Icons.schedule_outlined,
+                size: 14,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                timeRangeStr,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // 时长信息行（自由计时只显示实际时长）
+          if (!isFreeMode)
+            Row(
+              children: [
+                _InfoChip(
+                  label: '计划',
+                  value: '${widget.goal.plannedDuration} 分钟',
+                  theme: theme,
+                ),
+                const SizedBox(width: 8),
+                if (widget.goal.actualDuration != null)
+                  _InfoChip(
+                    label: '实际',
+                    value: '${widget.goal.actualDuration} 分钟',
+                    theme: theme,
+                    highlight: true,
+                  ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                _InfoChip(
+                  label: '自由计时',
+                  // 进行中：显示实时已过时长；已结束：显示 actualDuration 或活动记录总时长
+                  value: widget.goal.status == 'active'
+                      ? _formatElapsed(_elapsedSeconds)
+                      : '${widget.goal.actualDuration ?? totalMin} 分钟',
+                  theme: theme,
+                  highlight: true,
+                ),
+              ],
+            ),
+
+          const SizedBox(height: 14),
+
+          // 统计卡片 2×2
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  label: '总时长',
+                  value: '$totalMin 分钟',
+                  color: theme.colorScheme.primary,
+                  icon: Icons.timer_outlined,
+                  theme: theme,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StatCard(
+                  label: '有效时间',
+                  value: '$effectiveMin 分钟',
+                  color: Colors.green,
+                  icon: Icons.check_circle_outline,
+                  theme: theme,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  label: '娱乐时间',
+                  value: '$entertainMin 分钟',
+                  color: Colors.orange,
+                  icon: Icons.movie_outlined,
+                  theme: theme,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StatCard(
+                  label: '其他时间',
+                  value: '$otherMin 分钟',
+                  color: Colors.grey,
+                  icon: Icons.more_horiz,
+                  theme: theme,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+}
+
+
+
+/// 单条活动记录行（带标签状态和打标签入口）
+class _ActivityRow extends ConsumerWidget {
+  final AppUsageRecord record;
+  final int goalId;
+
+  const _ActivityRow({required this.record, required this.goalId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final labelAsync = ref.watch(_recordLabelsProvider(record.id));
+    final durationMin = record.duration ~/ 60000;
+    final durationSec = (record.duration % 60000) ~/ 1000;
+    final durationStr = durationMin > 0
+        ? '$durationMin分$durationSec秒'
+        : '$durationSec秒';
+    final startDt = DateTime.fromMillisecondsSinceEpoch(record.startTime);
+    final endDt = DateTime.fromMillisecondsSinceEpoch(record.endTime);
+    final timeRange =
+        '${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')} - '
+        '${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}';
+
+    return labelAsync.when(
+      data: (label) {
+        // 颜色根据标签 isEffective 决定
+        Color rowColor;
+        Widget labelBadge;
+
+        if (label == null) {
+          rowColor = theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4);
+          labelBadge = GestureDetector(
+            onTap: () => _showLabelPicker(context, ref, record),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add, size: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                  const SizedBox(width: 2),
+                  Text(
+                    '打标签',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        } else {
+          final labelColor = Color(label.color);
+          final isEffective = label.isEffective;
+          rowColor = labelColor.withValues(alpha: 0.08);
+          labelBadge = GestureDetector(
+            onTap: () => _showLabelPicker(context, ref, record),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: labelColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: labelColor.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label.emoji, style: const TextStyle(fontSize: 11)),
+                  const SizedBox(width: 3),
+                  Text(
+                    label.name,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: labelColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Icon(
+                    isEffective ? Icons.check_circle : Icons.remove_circle_outline,
+                    size: 11,
+                    color: labelColor,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return GestureDetector(
+          onTap: () => _showLabelPicker(context, ref, record),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: rowColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: label != null
+                    ? Color(label.color).withValues(alpha: 0.25)
+                    : theme.colorScheme.outline.withValues(alpha: 0.15),
+              ),
+            ),
+            child: Row(
+              children: [
+                // 左侧：App 名 + 时间段
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        record.appName,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        timeRange,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 右侧：时长 + 标签徽章
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      durationStr,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    labelBadge,
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      loading: () => Container(
+        height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(child: LinearProgressIndicator()),
+      ),
+      error: (e, _) => const SizedBox.shrink(),
+    );
+  }
+
+  /// 弹出标签选择器
+  void _showLabelPicker(BuildContext context, WidgetRef ref, AppUsageRecord record) {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _LabelPickerSheet(record: record),
+    );
+  }
+}
+
+/// 标签选择底部弹窗
+class _LabelPickerSheet extends ConsumerWidget {
+  final AppUsageRecord record;
+
+  const _LabelPickerSheet({required this.record});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final allLabelsAsync = ref.watch(_allLabelsProvider);
+    final currentLabelAsync = ref.watch(_recordLabelsProvider(record.id));
+
+    final durationMin = record.duration ~/ 60000;
+    final durationSec = (record.duration % 60000) ~/ 1000;
+    final startDt = DateTime.fromMillisecondsSinceEpoch(record.startTime);
+    final endDt = DateTime.fromMillisecondsSinceEpoch(record.endTime);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 拖动条
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 应用信息
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      record.appName,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      '${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')} - '
+                      '${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}  ·  '
+                      '${durationMin > 0 ? "$durationMin分" : ""}$durationSec秒',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+
+          // 说明文字
+          Text(
+            '这段时间是专注还是分心？',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 标签网格
+          allLabelsAsync.when(
+            data: (labels) => currentLabelAsync.when(
+              data: (currentLabel) {
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ...labels.map((label) {
+                      final isSelected = currentLabel?.id == label.id;
+                      final labelColor = Color(label.color);
+                      return GestureDetector(
+                        onTap: () async {
+                          final db = ref.read(databaseProvider);
+                          await db.tagRecord(recordId: record.id, labelId: label.id);
+                          // 刷新标签显示
+                          ref.invalidate(_recordLabelsProvider(record.id));
+                          ref.invalidate(_goalStatsProvider);
+                          ref.invalidate(_goalRecordsProvider);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? labelColor.withValues(alpha: 0.25)
+                                : labelColor.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isSelected
+                                  ? labelColor
+                                  : labelColor.withValues(alpha: 0.3),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(label.emoji, style: const TextStyle(fontSize: 16)),
+                              const SizedBox(width: 6),
+                              Text(
+                                label.name,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: labelColor,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                              if (isSelected) ...[
+                                const SizedBox(width: 4),
+                                Icon(Icons.check, size: 14, color: labelColor),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    // 清除标签按钮
+                    if (currentLabel != null)
+                      GestureDetector(
+                        onTap: () async {
+                          final db = ref.read(databaseProvider);
+                          await (db.delete(db.recordLabelMappings)
+                            ..where((t) => t.recordId.equals(record.id)))
+                              .go();
+                          ref.invalidate(_recordLabelsProvider(record.id));
+                          ref.invalidate(_goalStatsProvider);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.close, size: 14,
+                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                              const SizedBox(width: 4),
+                              Text(
+                                '清除标签',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Text('加载失败: $e'),
+            ),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Text('加载失败: $e'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _GoalReviewSection extends ConsumerWidget {
+  final Goal goal;
+  final AsyncValue<List<AppUsageRecord>> recordsAsync;
+  final AsyncValue<Map<String, int>> statsAsync;
+
+  const _GoalReviewSection({
+    required this.goal,
+    required this.recordsAsync,
+    required this.statsAsync,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '目标复盘',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 复盘内容
+          recordsAsync.when(
+            data: (records) => _buildReviewContent(context, theme, ref, records),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Text('加载失败: $e'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewContent(BuildContext context, ThemeData theme, WidgetRef ref, List<AppUsageRecord> records) {
+    if (records.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          '目标期间没有使用记录',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ),
+      );
+    }
+
+    // 获取数据库
+    final db = ref.read(databaseProvider);
+
+    // 计算分心 App 排行
+    final distractionApps = <String, int>{};
+    final effectiveApps = <String, int>{};
+
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _calculateReviewData(db, records),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final reviewData = snapshot.data!;
+        final topDistractionApps = reviewData['topDistractionApps'] as List<MapEntry<String, int>>;
+        final effectiveRatio = reviewData['effectiveRatio'] as double;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 有效时间占比
+            _ReviewCard(
+              icon: Icons.pie_chart_outline,
+              title: '专注度分析',
+              content: '有效时间占比 ${(effectiveRatio * 100).toStringAsFixed(1)}%',
+              color: effectiveRatio >= 0.8
+                  ? Colors.green
+                  : effectiveRatio >= 0.6
+                      ? Colors.orange
+                      : Colors.red,
+              theme: theme,
+            ),
+            const SizedBox(height: 12),
+
+            // 分心 App Top 3
+            if (topDistractionApps.isNotEmpty)
+              _ReviewCard(
+                icon: Icons.warning_amber_outlined,
+                title: '分心 App Top ${topDistractionApps.length > 3 ? 3 : topDistractionApps.length}',
+                content: topDistractionApps.take(3).map((e) {
+                  final minutes = (e.value / 60000).toStringAsFixed(0);
+                  return '${e.key} ($minutes分钟)';
+                }).join('、'),
+                color: Colors.orange,
+                theme: theme,
+              ),
+
+            const SizedBox(height: 12),
+
+            // 复盘建议
+            _ReviewSuggestionCard(
+              effectiveRatio: effectiveRatio,
+              theme: theme,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> _calculateReviewData(AppDatabase db, List<AppUsageRecord> records) async {
+    final distractionApps = <String, int>{};
+    final effectiveApps = <String, int>{};
+    int totalEffectiveTime = 0;
+    int totalEntertainTime = 0;
+
+    if (records.isEmpty) {
+      return {
+        'effectiveApps': effectiveApps,
+        'distractionApps': distractionApps,
+        'totalEffectiveTime': totalEffectiveTime,
+        'totalEntertainTime': totalEntertainTime,
+      };
+    }
+
+    // 批量查询所有 label，避免 N+1
+    final recordIds = records.map((r) => r.id).toList();
+    final mappings = await (db.select(db.recordLabelMappings).join([
+      innerJoin(db.userLabels, db.userLabels.id.equalsExp(db.recordLabelMappings.labelId)),
+    ])
+      ..where(db.recordLabelMappings.recordId.isIn(recordIds)))
+        .get();
+
+    // 构建 recordId -> labels 的映射
+    final labelsByRecordId = <int, List<UserLabel>>{};
+    for (final row in mappings) {
+      final recordId = row.readTable(db.recordLabelMappings).recordId;
+      final label = row.readTable(db.userLabels);
+      labelsByRecordId.putIfAbsent(recordId, () => []).add(label);
+    }
+
+    for (final record in records) {
+      final labels = labelsByRecordId[record.id] ?? [];
+      final hasEffectiveLabel = labels.any((label) => label.isEffective);
+      final hasEntertainLabel = labels.any((label) {
+        return label.name == '娱乐' || label.name == '刷视频';
+      });
+
+      if (hasEffectiveLabel) {
+        effectiveApps[record.appName] = (effectiveApps[record.appName] ?? 0) + record.duration;
+        totalEffectiveTime += record.duration;
+      } else if (hasEntertainLabel) {
+        distractionApps[record.appName] = (distractionApps[record.appName] ?? 0) + record.duration;
+        totalEntertainTime += record.duration;
+      } else {
+        // 未打标签的，归为其他
+        totalEffectiveTime += record.duration;
+      }
+    }
+
+    final totalTime = totalEffectiveTime + totalEntertainTime;
+    final effectiveRatio = totalTime > 0 ? totalEffectiveTime / totalTime : 0.0;
+
+    // 分心 App 按时长降序排序
+    final topDistractionApps = distractionApps.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return {
+      'topDistractionApps': topDistractionApps,
+      'effectiveRatio': effectiveRatio,
+      'totalEffectiveTime': totalEffectiveTime,
+      'totalEntertainTime': totalEntertainTime,
+    };
+  }
+}
+
+/// 复盘卡片
+class _ReviewCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String content;
+  final Color color;
+  final ThemeData theme;
+
+  const _ReviewCard({
+    required this.icon,
+    required this.title,
+    required this.content,
+    required this.color,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: color.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  content,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 复盘建议卡片
+class _ReviewSuggestionCard extends StatelessWidget {
+  final double effectiveRatio;
+  final ThemeData theme;
+
+  const _ReviewSuggestionCard({
+    required this.effectiveRatio,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String suggestion;
+    IconData suggestionIcon;
+    Color suggestionColor;
+
+    if (effectiveRatio >= 0.8) {
+      suggestion = '表现优秀！继续保持专注习惯，可以尝试挑战更长的目标时长。';
+      suggestionIcon = Icons.star_outline;
+      suggestionColor = Colors.green;
+    } else if (effectiveRatio >= 0.6) {
+      suggestion = '表现不错！有效时间占比尚可，可以适当减少娱乐类 App 的使用时间。';
+      suggestionIcon = Icons.trending_up_outlined;
+      suggestionColor = Colors.blue;
+    } else {
+      suggestion = '需要提升！建议下次目标前清理一下手机，减少干扰因素。';
+      suggestionIcon = Icons.tips_and_updates_outlined;
+      suggestionColor = Colors.orange;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            suggestionColor.withValues(alpha: 0.15),
+            suggestionColor.withValues(alpha: 0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: suggestionColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(suggestionIcon, color: suggestionColor, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              suggestion,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: suggestionColor.withValues(alpha: 0.9),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final ThemeData theme;
+  final bool highlight;
+
+  const _InfoChip({
+    required this.label,
+    required this.value,
+    required this.theme,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlight
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label · ',
+            style: theme.textTheme.labelSmall?.copyWith(color: color),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+  final ThemeData theme;
+
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 把同一个 App 在时间上相邻的碎片记录合并为一条"完整使用段"
+/// 规则：相邻两条记录的间隔 < [gapThresholdMs] 毫秒，则视为同一段连续使用
+List<AppUsageRecord> _mergeAdjacentRecords(
+  List<AppUsageRecord> records, {
+  int gapThresholdMs = 130000, // 130 秒（心跳 2min + 容错 10s），同一 App 连续使用视为一段
+}) {
+  if (records.isEmpty) return records;
+
+  // 先按开始时间排序
+  final sorted = [...records]..sort((a, b) => a.startTime.compareTo(b.startTime));
+  final merged = <AppUsageRecord>[];
+
+  AppUsageRecord current = sorted.first;
+
+  for (int i = 1; i < sorted.length; i++) {
+    final next = sorted[i];
+    final gap = next.startTime - current.endTime;
+
+    if (current.packageName == next.packageName && gap <= gapThresholdMs) {
+      // 同一 App 且时间连续，合并：保留 current 的 id（用于标签查询），
+      // endTime 取两者最大值，duration 重新计算
+      current = current.copyWith(
+        endTime: next.endTime > current.endTime ? next.endTime : current.endTime,
+        duration: (next.endTime > current.endTime ? next.endTime : current.endTime) - current.startTime,
+      );
+    } else {
+      merged.add(current);
+      current = next;
+    }
+  }
+  merged.add(current);
+
+  return merged;
+}
+
+/// Provider
+final _goalRecordsProvider = FutureProvider.autoDispose.family<List<AppUsageRecord>, int>((ref, goalId) async {
+  final db = ref.watch(databaseProvider);
+  final raw = await db.getRecordsByGoal(goalId);
+  // 展示时合并相邻同 App 碎片，保持精确数据的同时避免碎片化展示
+  return _mergeAdjacentRecords(raw);
+});
+
+final _goalStatsProvider = FutureProvider.family<Map<String, int>, int>((ref, goalId) async {
+  final db = ref.watch(databaseProvider);
+  return db.getGoalStats(goalId);
+});

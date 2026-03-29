@@ -1,0 +1,74 @@
+name: time_anchor
+description: 时光锚 - 主动追踪目标期间的应用使用行为
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 状态管理
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # 本地数据库
+  drift: ^2.14.1
+  drift_flutter: ^0.1.0
+  sqlite3_flutter_libs: ^0.5.18
+  path_provider: ^2.1.2
+  path: ^1.8.3
+
+  # 本地键值存储（主题持久化）
+  shared_preferences: ^2.2.3
+
+  # 图表
+  fl_chart: ^0.66.2
+
+  # 时间处理
+  intl: ^0.19.0
+
+  # 权限管理
+  permission_handler: ^11.3.0
+
+  # 本地通知（前台服务提示）
+  flutter_local_notifications: ^17.1.2
+
+  # URL 启动器（打开链接）
+  url_launcher: ^6.2.0
+
+  # 文件分享
+  share_plus: ^9.0.0
+
+  # UI 组件
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.2.1
+  flutter_colorpicker: ^1.0.3
+  shimmer: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#6750A4"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  build_runner: ^2.4.8
+  drift_dev: ^2.14.1
+  riverpod_generator: ^2.3.9
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/

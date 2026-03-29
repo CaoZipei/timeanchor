@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_label">时光锚 - 目标监控</string>
+    <string name="accessibility_service_description">时光锚：用于记录目标期间的应用使用情况，帮助您了解专注时长和分心时间。</string>
+</resources>
