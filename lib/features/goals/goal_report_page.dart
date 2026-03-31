@@ -319,10 +319,10 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
               const SizedBox(width: 10),
               Expanded(
                 child: _StatCard(
-                  label: '其他时间',
+                  label: '息屏/其他',
                   value: '$otherMin 分钟',
                   color: Colors.grey,
-                  icon: Icons.more_horiz,
+                  icon: Icons.phonelink_lock_outlined,
                   theme: theme,
                 ),
               ),
@@ -774,7 +774,7 @@ class _GoalReviewSection extends ConsumerWidget {
     final effectiveApps = <String, int>{};
 
     return FutureBuilder<Map<String, dynamic>>(
-      future: _calculateReviewData(db, records),
+      future: _calculateReviewData(db, records, goal),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -827,11 +827,17 @@ class _GoalReviewSection extends ConsumerWidget {
     );
   }
 
-  Future<Map<String, dynamic>> _calculateReviewData(AppDatabase db, List<AppUsageRecord> records) async {
+  Future<Map<String, dynamic>> _calculateReviewData(AppDatabase db, List<AppUsageRecord> records, Goal goal) async {
     final distractionApps = <String, int>{};
     final effectiveApps = <String, int>{};
     int totalEffectiveTime = 0;
     int totalEntertainTime = 0;
+
+    // 目标实际总时长（含息屏）：endTime - startTime
+    // 进行中目标 endTime 为 null，用 records 加总兜底
+    final goalTotalTime = (goal.endTime != null && goal.endTime! > goal.startTime)
+        ? (goal.endTime! - goal.startTime)
+        : records.fold<int>(0, (sum, r) => sum + r.duration);
 
     if (records.isEmpty) {
       return {
@@ -839,6 +845,8 @@ class _GoalReviewSection extends ConsumerWidget {
         'distractionApps': distractionApps,
         'totalEffectiveTime': totalEffectiveTime,
         'totalEntertainTime': totalEntertainTime,
+        'effectiveRatio': 0.0,
+        'topDistractionApps': <MapEntry<String, int>>[],
       };
     }
 
@@ -875,9 +883,9 @@ class _GoalReviewSection extends ConsumerWidget {
       // 未打标签的不计入任何类别
     }
 
-    // 分母用所有记录总时长，未打标签的时间也算进去
-    final totalTime = records.fold<int>(0, (sum, r) => sum + r.duration);
-    final effectiveRatio = totalTime > 0 ? totalEffectiveTime / totalTime : 0.0;
+    // 专注度分母用目标实际时长（含息屏），而非仅 App 使用时间
+    // 这样全程不用手机也能有合理的专注度，而非 0%
+    final effectiveRatio = goalTotalTime > 0 ? totalEffectiveTime / goalTotalTime : 0.0;
 
     // 分心 App 按时长降序排序
     final topDistractionApps = distractionApps.entries.toList()

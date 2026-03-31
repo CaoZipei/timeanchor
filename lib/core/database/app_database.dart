@@ -633,10 +633,20 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// 计算目标内的有效/分心时长
+  /// total 使用目标的实际时长（endTime - startTime），包含息屏时间，
+  /// 这样专注度分母才是真实时间，而不是仅手机使用时间。
   Future<Map<String, int>> getGoalStats(int goalId) async {
+    final goal = await getGoalById(goalId);
     final records = await getRecordsByGoal(goalId);
+
+    // 目标实际总时长：endTime - startTime（包含息屏），单位毫秒
+    // 目标进行中时 endTime 可能为 null，此时用 records 加总兜底
+    final goalTotalTime = (goal != null && goal.endTime != null && goal.endTime! > goal.startTime)
+        ? (goal.endTime! - goal.startTime)
+        : records.fold(0, (s, r) => s + r.duration);
+
     if (records.isEmpty) {
-      return {'effective': 0, 'entertain': 0, 'total': 0};
+      return {'effective': 0, 'entertain': 0, 'total': goalTotalTime};
     }
 
     // 获取记录的标签
@@ -666,12 +676,11 @@ class AppDatabase extends _$AppDatabase {
       }
     }
 
-    final totalTime = records.fold(0, (s, r) => s + r.duration);
-
     return {
       'effective': effectiveTime,
       'entertain': entertainTime,
-      'total': totalTime,
+      // total 用目标实际时长（含息屏），确保专注度分母正确
+      'total': goalTotalTime,
     };
   }
 
