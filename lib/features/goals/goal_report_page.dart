@@ -3,6 +3,7 @@ import 'package:drift/drift.dart' show innerJoin;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/app_database.dart';
+import '../../core/services/llm_service.dart';
 
 
 
@@ -821,6 +822,17 @@ class _GoalReviewSection extends ConsumerWidget {
               effectiveRatio: effectiveRatio,
               theme: theme,
             ),
+
+            const SizedBox(height: 16),
+
+            // AI 复盘入口
+            _AiReviewSection(
+              goal: goal,
+              reviewData: reviewData,
+              theme: theme,
+            ),
+
+            const SizedBox(height: 8),
           ],
         );
       },
@@ -896,6 +908,14 @@ class _GoalReviewSection extends ConsumerWidget {
       'effectiveRatio': effectiveRatio,
       'totalEffectiveTime': totalEffectiveTime,
       'totalEntertainTime': totalEntertainTime,
+      // AI 复盘所需额外数据
+      'goalTotalTime': goalTotalTime,
+      'screenOffTime': goalTotalTime - records.fold<int>(0, (s, r) => s + r.duration),
+      'topEffectiveApps': (effectiveApps.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value)))
+          .take(3)
+          .map((e) => '${e.key}(${(e.value / 60000).toStringAsFixed(0)}分钟)')
+          .toList(),
     };
   }
 }
@@ -1019,6 +1039,225 @@ class _ReviewSuggestionCard extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────
+// AI 复盘区域
+// ─────────────────────────────────────────────────────
+
+/// AI 复盘 Section：按钮触发，打字机效果展示结果
+class _AiReviewSection extends StatefulWidget {
+  final Goal goal;
+  final Map<String, dynamic> reviewData;
+  final ThemeData theme;
+
+  const _AiReviewSection({
+    required this.goal,
+    required this.reviewData,
+    required this.theme,
+  });
+
+  @override
+  State<_AiReviewSection> createState() => _AiReviewSectionState();
+}
+
+class _AiReviewSectionState extends State<_AiReviewSection> {
+  // 状态：idle / loading / streaming / done / error
+  String _status = 'idle';
+  String _text = '';
+  StreamSubscription<String>? _sub;
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startReview() async {
+    // 检查 API Key
+    final apiKey = await LlmService.getApiKey();
+    if (apiKey == null || apiKey.isEmpty) {
+      if (!mounted) return;
+      _showApiKeyDialog();
+      return;
+    }
+
+    setState(() {
+      _status = 'loading';
+      _text = '';
+    });
+
+    final goal = widget.goal;
+    final data = widget.reviewData;
+    final goalTotalTime = (data['goalTotalTime'] as int? ?? 0);
+    final screenOffTime = (data['screenOffTime'] as int? ?? 0).clamp(0, goalTotalTime);
+    final effectiveTime = (data['totalEffectiveTime'] as int? ?? 0);
+    final topDistractionApps = (data['topDistractionApps'] as List<MapEntry<String, int>>)
+        .take(3)
+        .map((e) => '${e.key}(${(e.value / 60000).toStringAsFixed(0)}分钟)')
+        .toList();
+    final topEffectiveApps = (data['topEffectiveApps'] as List<String>? ?? []);
+
+    final stream = LlmService.streamGoalReview(
+      goalName: goal.title,
+      totalMinutes: (goalTotalTime / 60000).round(),
+      effectiveMinutes: (effectiveTime / 60000).round(),
+      screenOffMinutes: (screenOffTime / 60000).round(),
+      topDistractionApps: topDistractionApps,
+      topEffectiveApps: topEffectiveApps,
+    );
+
+    setState(() => _status = 'streaming');
+
+    _sub = stream.listen(
+      (chunk) {
+        if (mounted) setState(() => _text += chunk);
+      },
+      onDone: () {
+        if (mounted) setState(() => _status = 'done');
+      },
+      onError: (e) {
+        if (mounted) setState(() {
+          _text = '[出错了: $e]';
+          _status = 'error';
+        });
+      },
+    );
+  }
+
+  void _showApiKeyDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('配置 API Key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '请输入阿里云百炼 API Key\n（dashscope.aliyuncs.com 控制台获取）',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                border: OutlineInputBorder(),
+                hintText: 'sk-...',
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final key = controller.text.trim();
+              if (key.isNotEmpty) {
+                await LlmService.saveApiKey(key);
+                if (ctx.mounted) Navigator.pop(ctx);
+                _startReview();
+              }
+            },
+            child: const Text('保存并生成'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final primary = theme.colorScheme.primary;
+
+    if (_status == 'idle') {
+      return OutlinedButton.icon(
+        onPressed: _startReview,
+        icon: Icon(Icons.auto_awesome_outlined, size: 18, color: primary),
+        label: Text('AI 复盘', style: TextStyle(color: primary)),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 46),
+          side: BorderSide(color: primary.withValues(alpha: 0.5)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary.withValues(alpha: 0.08),
+            primary.withValues(alpha: 0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 16, color: primary),
+              const SizedBox(width: 6),
+              Text(
+                'AI 复盘',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              if (_status == 'done')
+                GestureDetector(
+                  onTap: () => setState(() {
+                    _status = 'idle';
+                    _text = '';
+                    _sub?.cancel();
+                  }),
+                  child: Icon(Icons.refresh, size: 16, color: primary.withValues(alpha: 0.6)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (_status == 'loading')
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                ),
+                const SizedBox(width: 8),
+                Text('生成中…', style: theme.textTheme.bodySmall?.copyWith(color: primary)),
+              ],
+            )
+          else
+            Text(
+              _text + (_status == 'streaming' ? '▍' : ''), // 光标效果
+              style: theme.textTheme.bodyMedium?.copyWith(
+                height: 1.6,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────
 
 class _InfoChip extends StatelessWidget {
   final String label;

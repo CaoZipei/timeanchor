@@ -38,6 +38,9 @@ dependencies:
   # 本地通知（前台服务提示）
   flutter_local_notifications: ^17.1.2
 
+  # HTTP 客户端（AI 复盘接口）
+  http: ^1.2.0
+
   # URL 启动器（打开链接）
   url_launcher: ^6.2.0
 
