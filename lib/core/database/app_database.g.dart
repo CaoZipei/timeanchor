@@ -72,6 +72,18 @@ class $GoalsTable extends Goals with TableInfo<$GoalsTable, Goal> {
   late final GeneratedColumn<String> userNote = GeneratedColumn<String>(
       'user_note', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _aiReviewTextMeta =
+      const VerificationMeta('aiReviewText');
+  @override
+  late final GeneratedColumn<String> aiReviewText = GeneratedColumn<String>(
+      'ai_review_text', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _aiReviewFeedbackMeta =
+      const VerificationMeta('aiReviewFeedback');
+  @override
+  late final GeneratedColumn<int> aiReviewFeedback = GeneratedColumn<int>(
+      'ai_review_feedback', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -90,6 +102,8 @@ class $GoalsTable extends Goals with TableInfo<$GoalsTable, Goal> {
         status,
         completed,
         userNote,
+        aiReviewText,
+        aiReviewFeedback,
         createdAt
       ];
   @override
@@ -155,6 +169,18 @@ class $GoalsTable extends Goals with TableInfo<$GoalsTable, Goal> {
       context.handle(_userNoteMeta,
           userNote.isAcceptableOrUnknown(data['user_note']!, _userNoteMeta));
     }
+    if (data.containsKey('ai_review_text')) {
+      context.handle(
+          _aiReviewTextMeta,
+          aiReviewText.isAcceptableOrUnknown(
+              data['ai_review_text']!, _aiReviewTextMeta));
+    }
+    if (data.containsKey('ai_review_feedback')) {
+      context.handle(
+          _aiReviewFeedbackMeta,
+          aiReviewFeedback.isAcceptableOrUnknown(
+              data['ai_review_feedback']!, _aiReviewFeedbackMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -190,6 +216,10 @@ class $GoalsTable extends Goals with TableInfo<$GoalsTable, Goal> {
           .read(DriftSqlType.bool, data['${effectivePrefix}completed']),
       userNote: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}user_note']),
+      aiReviewText: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}ai_review_text']),
+      aiReviewFeedback: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}ai_review_feedback']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
     );
@@ -212,6 +242,8 @@ class Goal extends DataClass implements Insertable<Goal> {
   final String status;
   final bool? completed;
   final String? userNote;
+  final String? aiReviewText;
+  final int? aiReviewFeedback;
   final DateTime createdAt;
   const Goal(
       {required this.id,
@@ -224,6 +256,8 @@ class Goal extends DataClass implements Insertable<Goal> {
       required this.status,
       this.completed,
       this.userNote,
+      this.aiReviewText,
+      this.aiReviewFeedback,
       required this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -247,6 +281,12 @@ class Goal extends DataClass implements Insertable<Goal> {
     }
     if (!nullToAbsent || userNote != null) {
       map['user_note'] = Variable<String>(userNote);
+    }
+    if (!nullToAbsent || aiReviewText != null) {
+      map['ai_review_text'] = Variable<String>(aiReviewText);
+    }
+    if (!nullToAbsent || aiReviewFeedback != null) {
+      map['ai_review_feedback'] = Variable<int>(aiReviewFeedback);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -274,6 +314,12 @@ class Goal extends DataClass implements Insertable<Goal> {
       userNote: userNote == null && nullToAbsent
           ? const Value.absent()
           : Value(userNote),
+      aiReviewText: aiReviewText == null && nullToAbsent
+          ? const Value.absent()
+          : Value(aiReviewText),
+      aiReviewFeedback: aiReviewFeedback == null && nullToAbsent
+          ? const Value.absent()
+          : Value(aiReviewFeedback),
       createdAt: Value(createdAt),
     );
   }
@@ -292,6 +338,8 @@ class Goal extends DataClass implements Insertable<Goal> {
       status: serializer.fromJson<String>(json['status']),
       completed: serializer.fromJson<bool?>(json['completed']),
       userNote: serializer.fromJson<String?>(json['userNote']),
+      aiReviewText: serializer.fromJson<String?>(json['aiReviewText']),
+      aiReviewFeedback: serializer.fromJson<int?>(json['aiReviewFeedback']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -309,6 +357,8 @@ class Goal extends DataClass implements Insertable<Goal> {
       'status': serializer.toJson<String>(status),
       'completed': serializer.toJson<bool?>(completed),
       'userNote': serializer.toJson<String?>(userNote),
+      'aiReviewText': serializer.toJson<String?>(aiReviewText),
+      'aiReviewFeedback': serializer.toJson<int?>(aiReviewFeedback),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -324,6 +374,8 @@ class Goal extends DataClass implements Insertable<Goal> {
           String? status,
           Value<bool?> completed = const Value.absent(),
           Value<String?> userNote = const Value.absent(),
+          Value<String?> aiReviewText = const Value.absent(),
+          Value<int?> aiReviewFeedback = const Value.absent(),
           DateTime? createdAt}) =>
       Goal(
         id: id ?? this.id,
@@ -337,6 +389,11 @@ class Goal extends DataClass implements Insertable<Goal> {
         status: status ?? this.status,
         completed: completed.present ? completed.value : this.completed,
         userNote: userNote.present ? userNote.value : this.userNote,
+        aiReviewText:
+            aiReviewText.present ? aiReviewText.value : this.aiReviewText,
+        aiReviewFeedback: aiReviewFeedback.present
+            ? aiReviewFeedback.value
+            : this.aiReviewFeedback,
         createdAt: createdAt ?? this.createdAt,
       );
   Goal copyWithCompanion(GoalsCompanion data) {
@@ -356,6 +413,12 @@ class Goal extends DataClass implements Insertable<Goal> {
       status: data.status.present ? data.status.value : this.status,
       completed: data.completed.present ? data.completed.value : this.completed,
       userNote: data.userNote.present ? data.userNote.value : this.userNote,
+      aiReviewText: data.aiReviewText.present
+          ? data.aiReviewText.value
+          : this.aiReviewText,
+      aiReviewFeedback: data.aiReviewFeedback.present
+          ? data.aiReviewFeedback.value
+          : this.aiReviewFeedback,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -373,6 +436,8 @@ class Goal extends DataClass implements Insertable<Goal> {
           ..write('status: $status, ')
           ..write('completed: $completed, ')
           ..write('userNote: $userNote, ')
+          ..write('aiReviewText: $aiReviewText, ')
+          ..write('aiReviewFeedback: $aiReviewFeedback, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -390,6 +455,8 @@ class Goal extends DataClass implements Insertable<Goal> {
       status,
       completed,
       userNote,
+      aiReviewText,
+      aiReviewFeedback,
       createdAt);
   @override
   bool operator ==(Object other) =>
@@ -405,6 +472,8 @@ class Goal extends DataClass implements Insertable<Goal> {
           other.status == this.status &&
           other.completed == this.completed &&
           other.userNote == this.userNote &&
+          other.aiReviewText == this.aiReviewText &&
+          other.aiReviewFeedback == this.aiReviewFeedback &&
           other.createdAt == this.createdAt);
 }
 
@@ -419,6 +488,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
   final Value<String> status;
   final Value<bool?> completed;
   final Value<String?> userNote;
+  final Value<String?> aiReviewText;
+  final Value<int?> aiReviewFeedback;
   final Value<DateTime> createdAt;
   const GoalsCompanion({
     this.id = const Value.absent(),
@@ -431,6 +502,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
     this.status = const Value.absent(),
     this.completed = const Value.absent(),
     this.userNote = const Value.absent(),
+    this.aiReviewText = const Value.absent(),
+    this.aiReviewFeedback = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   GoalsCompanion.insert({
@@ -444,6 +517,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
     required String status,
     this.completed = const Value.absent(),
     this.userNote = const Value.absent(),
+    this.aiReviewText = const Value.absent(),
+    this.aiReviewFeedback = const Value.absent(),
     required DateTime createdAt,
   })  : title = Value(title),
         plannedDuration = Value(plannedDuration),
@@ -461,6 +536,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
     Expression<String>? status,
     Expression<bool>? completed,
     Expression<String>? userNote,
+    Expression<String>? aiReviewText,
+    Expression<int>? aiReviewFeedback,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -474,6 +551,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
       if (status != null) 'status': status,
       if (completed != null) 'completed': completed,
       if (userNote != null) 'user_note': userNote,
+      if (aiReviewText != null) 'ai_review_text': aiReviewText,
+      if (aiReviewFeedback != null) 'ai_review_feedback': aiReviewFeedback,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -489,6 +568,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
       Value<String>? status,
       Value<bool?>? completed,
       Value<String?>? userNote,
+      Value<String?>? aiReviewText,
+      Value<int?>? aiReviewFeedback,
       Value<DateTime>? createdAt}) {
     return GoalsCompanion(
       id: id ?? this.id,
@@ -501,6 +582,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
       status: status ?? this.status,
       completed: completed ?? this.completed,
       userNote: userNote ?? this.userNote,
+      aiReviewText: aiReviewText ?? this.aiReviewText,
+      aiReviewFeedback: aiReviewFeedback ?? this.aiReviewFeedback,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -538,6 +621,12 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
     if (userNote.present) {
       map['user_note'] = Variable<String>(userNote.value);
     }
+    if (aiReviewText.present) {
+      map['ai_review_text'] = Variable<String>(aiReviewText.value);
+    }
+    if (aiReviewFeedback.present) {
+      map['ai_review_feedback'] = Variable<int>(aiReviewFeedback.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -557,6 +646,8 @@ class GoalsCompanion extends UpdateCompanion<Goal> {
           ..write('status: $status, ')
           ..write('completed: $completed, ')
           ..write('userNote: $userNote, ')
+          ..write('aiReviewText: $aiReviewText, ')
+          ..write('aiReviewFeedback: $aiReviewFeedback, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2840,6 +2931,8 @@ typedef $$GoalsTableCreateCompanionBuilder = GoalsCompanion Function({
   required String status,
   Value<bool?> completed,
   Value<String?> userNote,
+  Value<String?> aiReviewText,
+  Value<int?> aiReviewFeedback,
   required DateTime createdAt,
 });
 typedef $$GoalsTableUpdateCompanionBuilder = GoalsCompanion Function({
@@ -2853,6 +2946,8 @@ typedef $$GoalsTableUpdateCompanionBuilder = GoalsCompanion Function({
   Value<String> status,
   Value<bool?> completed,
   Value<String?> userNote,
+  Value<String?> aiReviewText,
+  Value<int?> aiReviewFeedback,
   Value<DateTime> createdAt,
 });
 
@@ -2883,6 +2978,8 @@ class $$GoalsTableTableManager extends RootTableManager<
             Value<String> status = const Value.absent(),
             Value<bool?> completed = const Value.absent(),
             Value<String?> userNote = const Value.absent(),
+            Value<String?> aiReviewText = const Value.absent(),
+            Value<int?> aiReviewFeedback = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               GoalsCompanion(
@@ -2896,6 +2993,8 @@ class $$GoalsTableTableManager extends RootTableManager<
             status: status,
             completed: completed,
             userNote: userNote,
+            aiReviewText: aiReviewText,
+            aiReviewFeedback: aiReviewFeedback,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
@@ -2909,6 +3008,8 @@ class $$GoalsTableTableManager extends RootTableManager<
             required String status,
             Value<bool?> completed = const Value.absent(),
             Value<String?> userNote = const Value.absent(),
+            Value<String?> aiReviewText = const Value.absent(),
+            Value<int?> aiReviewFeedback = const Value.absent(),
             required DateTime createdAt,
           }) =>
               GoalsCompanion.insert(
@@ -2922,6 +3023,8 @@ class $$GoalsTableTableManager extends RootTableManager<
             status: status,
             completed: completed,
             userNote: userNote,
+            aiReviewText: aiReviewText,
+            aiReviewFeedback: aiReviewFeedback,
             createdAt: createdAt,
           ),
         ));
@@ -2977,6 +3080,16 @@ class $$GoalsTableFilterComposer
 
   ColumnFilters<String> get userNote => $state.composableBuilder(
       column: $state.table.userNote,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get aiReviewText => $state.composableBuilder(
+      column: $state.table.aiReviewText,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<int> get aiReviewFeedback => $state.composableBuilder(
+      column: $state.table.aiReviewFeedback,
       builder: (column, joinBuilders) =>
           ColumnFilters(column, joinBuilders: joinBuilders));
 
@@ -3050,6 +3163,16 @@ class $$GoalsTableOrderingComposer
 
   ColumnOrderings<String> get userNote => $state.composableBuilder(
       column: $state.table.userNote,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get aiReviewText => $state.composableBuilder(
+      column: $state.table.aiReviewText,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<int> get aiReviewFeedback => $state.composableBuilder(
+      column: $state.table.aiReviewFeedback,
       builder: (column, joinBuilders) =>
           ColumnOrderings(column, joinBuilders: joinBuilders));
 

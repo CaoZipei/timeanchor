@@ -58,6 +58,9 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
+  build_runner: ^2.4.8
+  drift_dev: ^2.14.1
+  riverpod_generator: ^2.3.9
 
 flutter_launcher_icons:
   android: true
@@ -66,9 +69,6 @@ flutter_launcher_icons:
   min_sdk_android: 21
   adaptive_icon_background: "#6750A4"
   adaptive_icon_foreground: "assets/icon/app_icon.png"
-  build_runner: ^2.4.8
-  drift_dev: ^2.14.1
-  riverpod_generator: ^2.3.9
 
 flutter:
   uses-material-design: true

@@ -830,6 +830,7 @@ class _GoalReviewSection extends ConsumerWidget {
               goal: goal,
               reviewData: reviewData,
               theme: theme,
+              db: db,
             ),
 
             const SizedBox(height: 8),
@@ -1041,19 +1042,24 @@ class _ReviewSuggestionCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────
-// AI 复盘区域
+// AI 复盘区域（v2：持久化 + 反馈）
 // ─────────────────────────────────────────────────────
 
-/// AI 复盘 Section：按钮触发，打字机效果展示结果
+/// AI 复盘 Section
+/// - 打开时自动加载历史复盘（避免重复消耗 token）
+/// - 生成完毕自动保存到数据库
+/// - 支持 👍👎 反馈
 class _AiReviewSection extends StatefulWidget {
   final Goal goal;
   final Map<String, dynamic> reviewData;
   final ThemeData theme;
+  final AppDatabase db;
 
   const _AiReviewSection({
     required this.goal,
     required this.reviewData,
     required this.theme,
+    required this.db,
   });
 
   @override
@@ -1061,10 +1067,32 @@ class _AiReviewSection extends StatefulWidget {
 }
 
 class _AiReviewSectionState extends State<_AiReviewSection> {
-  // 状态：idle / loading / streaming / done / error
-  String _status = 'idle';
+  // 状态：init（加载历史） / idle / loading / streaming / done / error
+  String _status = 'init';
   String _text = '';
+  int? _feedback; // 1=👍 0=👎 null=未反馈
   StreamSubscription<String>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  /// 加载数据库中已有的复盘文本
+  Future<void> _loadHistory() async {
+    final goal = await widget.db.getGoalById(widget.goal.id);
+    if (!mounted) return;
+    if (goal?.aiReviewText != null && goal!.aiReviewText!.isNotEmpty) {
+      setState(() {
+        _text = goal.aiReviewText!;
+        _feedback = goal.aiReviewFeedback;
+        _status = 'done';
+      });
+    } else {
+      setState(() => _status = 'idle');
+    }
+  }
 
   @override
   void dispose() {
@@ -1084,6 +1112,7 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
     setState(() {
       _status = 'loading';
       _text = '';
+      _feedback = null;
     });
 
     final goal = widget.goal;
@@ -1112,8 +1141,13 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
       (chunk) {
         if (mounted) setState(() => _text += chunk);
       },
-      onDone: () {
-        if (mounted) setState(() => _status = 'done');
+      onDone: () async {
+        if (!mounted) return;
+        setState(() => _status = 'done');
+        // 生成完毕 → 自动保存到数据库
+        if (_text.isNotEmpty && !_text.startsWith('[')) {
+          await widget.db.saveAiReview(widget.goal.id, _text);
+        }
       },
       onError: (e) {
         if (mounted) setState(() {
@@ -1122,6 +1156,11 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
         });
       },
     );
+  }
+
+  Future<void> _saveFeedback(int value) async {
+    await widget.db.saveAiReviewFeedback(widget.goal.id, value);
+    if (mounted) setState(() => _feedback = value);
   }
 
   void _showApiKeyDialog() {
@@ -1176,6 +1215,12 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
     final theme = widget.theme;
     final primary = theme.colorScheme.primary;
 
+    // 历史加载中
+    if (_status == 'init') {
+      return const SizedBox(height: 46);
+    }
+
+    // 无历史，显示触发按钮
     if (_status == 'idle') {
       return OutlinedButton.icon(
         onPressed: _startReview,
@@ -1189,6 +1234,7 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
       );
     }
 
+    // 有内容（streaming / done / error）
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1207,6 +1253,7 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 标题行
           Row(
             children: [
               Icon(Icons.auto_awesome, size: 16, color: primary),
@@ -1219,18 +1266,20 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
                 ),
               ),
               const Spacer(),
-              if (_status == 'done')
+              // 重新生成（仅 done/error 时显示）
+              if (_status == 'done' || _status == 'error')
                 GestureDetector(
-                  onTap: () => setState(() {
-                    _status = 'idle';
-                    _text = '';
-                    _sub?.cancel();
-                  }),
-                  child: Icon(Icons.refresh, size: 16, color: primary.withValues(alpha: 0.6)),
+                  onTap: _startReview,
+                  child: Tooltip(
+                    message: '重新生成',
+                    child: Icon(Icons.refresh, size: 16, color: primary.withValues(alpha: 0.6)),
+                  ),
                 ),
             ],
           ),
           const SizedBox(height: 10),
+
+          // 内容区
           if (_status == 'loading')
             Row(
               children: [
@@ -1245,13 +1294,94 @@ class _AiReviewSectionState extends State<_AiReviewSection> {
             )
           else
             Text(
-              _text + (_status == 'streaming' ? '▍' : ''), // 光标效果
+              _text + (_status == 'streaming' ? '▍' : ''),
               style: theme.textTheme.bodyMedium?.copyWith(
                 height: 1.6,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
               ),
             ),
+
+          // 反馈按钮（仅 done 时显示）
+          if (_status == 'done') ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text(
+                  '这次复盘有帮助吗？',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _FeedbackBtn(
+                  icon: Icons.thumb_up_outlined,
+                  iconSelected: Icons.thumb_up,
+                  selected: _feedback == 1,
+                  onTap: () => _saveFeedback(1),
+                  color: Colors.green,
+                ),
+                const SizedBox(width: 6),
+                _FeedbackBtn(
+                  icon: Icons.thumb_down_outlined,
+                  iconSelected: Icons.thumb_down,
+                  selected: _feedback == 0,
+                  onTap: () => _saveFeedback(0),
+                  color: Colors.red,
+                ),
+                if (_feedback != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    _feedback == 1 ? '谢谢反馈 👍' : '已记录，下次改进',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// 反馈按钮（选中/未选中状态）
+class _FeedbackBtn extends StatelessWidget {
+  final IconData icon;
+  final IconData iconSelected;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color color;
+
+  const _FeedbackBtn({
+    required this.icon,
+    required this.iconSelected,
+    required this.selected,
+    required this.onTap,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color.withValues(alpha: 0.5) : Colors.grey.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Icon(
+          selected ? iconSelected : icon,
+          size: 14,
+          color: selected ? color : Colors.grey,
+        ),
       ),
     );
   }

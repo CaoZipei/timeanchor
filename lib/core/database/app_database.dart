@@ -12,7 +12,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -87,6 +87,12 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(goals, goals.completed);
         await m.addColumn(goals, goals.userNote);
         AppLogger.info('Migration complete: completed and userNote columns added', 'DB');
+      }
+      if (oldVersion == 7) {
+        AppLogger.info('Migrating from v7 to v8: Adding aiReviewText and aiReviewFeedback columns...', 'DB');
+        await m.addColumn(goals, goals.aiReviewText);
+        await m.addColumn(goals, goals.aiReviewFeedback);
+        AppLogger.info('Migration complete: aiReviewText and aiReviewFeedback columns added', 'DB');
       }
     },
   );
@@ -622,6 +628,22 @@ class AppDatabase extends _$AppDatabase {
   /// 根据 ID 获取目标
   Future<Goal?> getGoalById(int goalId) {
     return (select(goals)..where((t) => t.id.equals(goalId))).getSingleOrNull();
+  }
+
+  /// 保存 AI 复盘文本（生成完毕后调用，避免用户重复消耗 token）
+  Future<void> saveAiReview(int goalId, String reviewText) async {
+    await (update(goals)..where((t) => t.id.equals(goalId))).write(
+      GoalsCompanion(aiReviewText: Value(reviewText)),
+    );
+    AppLogger.debug('AI review saved for goal $goalId', 'DB');
+  }
+
+  /// 保存 AI 复盘反馈：1=👍 有帮助  0=👎 没帮助
+  Future<void> saveAiReviewFeedback(int goalId, int feedback) async {
+    await (update(goals)..where((t) => t.id.equals(goalId))).write(
+      GoalsCompanion(aiReviewFeedback: Value(feedback)),
+    );
+    AppLogger.debug('AI review feedback($feedback) saved for goal $goalId', 'DB');
   }
 
   /// 获取目标内的所有使用记录

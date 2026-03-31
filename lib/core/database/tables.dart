@@ -12,6 +12,8 @@ class Goals extends Table {
   TextColumn get status => text()(); // 状态: active, completed, cancelled
   BoolColumn get completed => boolean().nullable()(); // ✅ 用户主观判断是否完成
   TextColumn get userNote => text().nullable()(); // ✅ 用户备注
+  TextColumn get aiReviewText => text().nullable()(); // AI 复盘文本（持久化，避免重复生成）
+  IntColumn get aiReviewFeedback => integer().nullable()(); // AI 复盘反馈：1=👍 0=👎 null=未反馈
   DateTimeColumn get createdAt => dateTime()(); // 创建时间
 }
 
