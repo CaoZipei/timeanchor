@@ -232,7 +232,114 @@ class _HistoryContent extends StatelessWidget {
                 isBest: s.index == best.index,
               )),
 
+          const SizedBox(height: 24),
+
+          // ── Insight 总结 ──
+          if (sessions.length >= 2)
+            _InsightCard(sessions: sessions, best: best),
+
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+// Insight 总结卡
+// ──────────────────────────────────────────────────────────
+class _InsightCard extends StatelessWidget {
+  final List<_GoalSession> sessions;
+  final _GoalSession best;
+  const _InsightCard({required this.sessions, required this.best});
+
+  String _buildInsightText() {
+    final first = sessions.first;
+    final latest = sessions.last;
+    final n = sessions.length;
+
+    // 专注率变化
+    final rateDelta = latest.focusRate - first.focusRate;
+    final rateDeltaPct = (rateDelta * 100).abs().round();
+    final rateFirst = (first.focusRate * 100).round();
+    final rateLast = (latest.focusRate * 100).round();
+
+    // 最佳次数
+    final bestIndex = best.index;
+
+    // 总有效时长
+    final totalEffMs = sessions.fold(0, (sum, s) => sum + s.effectiveMs);
+    final totalEffMin = totalEffMs ~/ 60000;
+    final totalH = totalEffMin ~/ 60;
+    final totalM = totalEffMin % 60;
+    final totalStr = totalH > 0 ? '$totalH小时$totalM分钟' : '$totalM分钟';
+
+    final sb = StringBuffer();
+
+    // 句1：整体趋势
+    if (rateDelta > 0.01) {
+      sb.write('经过$n次练习，你的专注率从${rateFirst}%提升到了${rateLast}%，'
+          '上涨了${rateDeltaPct}个百分点。');
+    } else if (rateDelta < -0.01) {
+      sb.write('最近这${n}次中，专注率从${rateFirst}%下滑到了${rateLast}%，'
+          '降低了${rateDeltaPct}个百分点——但坚持记录本身就是进步。');
+    } else {
+      sb.write('你在${n}次练习中保持了稳定的专注水平（${rateLast}%），波动不大。');
+    }
+
+    sb.write(' ');
+
+    // 句2：最佳次数
+    if (bestIndex == n) {
+      sb.write('最近一次就是你的最佳表现，势头很好！');
+    } else if (bestIndex == 1) {
+      sb.write('第1次就达到了最高专注率（${(best.focusRate * 100).round()}%），'
+          '之后可以尝试找回那次的状态。');
+    } else {
+      sb.write('第${bestIndex}次是你的巅峰（${(best.focusRate * 100).round()}%），'
+          '不妨回忆一下那天有什么不同。');
+    }
+
+    sb.write(' ');
+
+    // 句3：累计有效时长
+    sb.write('累计有效专注时长 $totalStr，加油继续！');
+
+    return sb.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = _buildInsightText();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(0.2),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.lightbulb_outline,
+            color: theme.colorScheme.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onPrimaryContainer,
+                height: 1.6,
+              ),
+            ),
+          ),
         ],
       ),
     );
