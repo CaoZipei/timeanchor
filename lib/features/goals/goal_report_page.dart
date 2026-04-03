@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/app_database.dart';
 import '../../core/services/llm_service.dart';
+import 'share_card_widget.dart';
 
 
 
@@ -66,6 +67,62 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
     return '${m}:${s.toString().padLeft(2, '0')}';
   }
 
+  Future<void> _showShareCard(BuildContext context) async {
+    final goal = widget.goal;
+    final stats = ref.read(_goalStatsProvider(goal.id)).valueOrNull ?? {};
+
+    final totalTime = stats['total'] ?? 0;
+    final effectiveTime = stats['effective'] ?? 0;
+    final goalTotalTime = (goal.endTime != null && goal.endTime! > goal.startTime)
+        ? (goal.endTime! - goal.startTime)
+        : totalTime;
+    final focusRate = goalTotalTime > 0 ? effectiveTime / goalTotalTime : 0.0;
+    final totalMinutes = (goalTotalTime / 60000).round();
+
+    // 构建日期范围字符串
+    final startDt = DateTime.fromMillisecondsSinceEpoch(goal.startTime);
+    final startStr = '${startDt.month.toString().padLeft(2, '0')}/${startDt.day.toString().padLeft(2, '0')} '
+        '${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')}';
+    String dateRange;
+    if (goal.endTime != null) {
+      final endDt = DateTime.fromMillisecondsSinceEpoch(goal.endTime!);
+      dateRange = '$startStr - ${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}';
+    } else {
+      dateRange = startStr;
+    }
+
+    // AI 复盘取前 60 字作一句话
+    String? aiOneLiner;
+    if (goal.aiReviewText != null && goal.aiReviewText!.isNotEmpty) {
+      final text = goal.aiReviewText!.replaceAll('\n', ' ').trim();
+      aiOneLiner = text.length > 60 ? '${text.substring(0, 57)}...' : text;
+    }
+
+    // 分心 App（从数据库查）
+    final db = ref.read(databaseProvider);
+    final records = await db.getRecordsByGoal(goal.id);
+    final distractionApps = <String>[];
+    for (final r in records) {
+      if (r.appName != '时光锚' && !distractionApps.contains(r.appName)) {
+        distractionApps.add(r.appName);
+        if (distractionApps.length >= 3) break;
+      }
+    }
+
+    if (!context.mounted) return;
+    await showShareCardDialog(
+      context,
+      ShareCardData(
+        goalTitle: goal.title,
+        totalMinutes: totalMinutes,
+        focusRate: focusRate,
+        dateRange: dateRange,
+        distractionApps: distractionApps,
+        aiOneLiner: aiOneLiner,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -78,6 +135,14 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
         title: Text(widget.goal.title),
         backgroundColor: theme.colorScheme.surface,
         elevation: 0,
+        actions: [
+          if (widget.goal.status == 'completed')
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              tooltip: '分享报告',
+              onPressed: () => _showShareCard(context),
+            ),
+        ],
       ),
       body: SafeArea(
         bottom: false,
