@@ -630,6 +630,14 @@ class AppDatabase extends _$AppDatabase {
     return (select(goals)..where((t) => t.id.equals(goalId))).getSingleOrNull();
   }
 
+  /// 获取同名目标历史（按 startTime 升序），仅返回已完成的
+  Future<List<Goal>> getGoalsByTitle(String title) {
+    return (select(goals)
+      ..where((t) => t.title.equals(title) & t.status.equals('completed'))
+      ..orderBy([(t) => OrderingTerm.asc(t.startTime)]))
+        .get();
+  }
+
   /// 保存 AI 复盘文本（生成完毕后调用，避免用户重复消耗 token）
   Future<void> saveAiReview(int goalId, String reviewText) async {
     await (update(goals)..where((t) => t.id.equals(goalId))).write(

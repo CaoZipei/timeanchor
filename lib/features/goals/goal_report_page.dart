@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/app_database.dart';
 import '../../core/services/llm_service.dart';
+import 'goal_history_page.dart';
 import 'share_card_widget.dart';
 
 
@@ -136,12 +137,24 @@ class _GoalReportPageState extends ConsumerState<GoalReportPage> {
         backgroundColor: theme.colorScheme.surface,
         elevation: 0,
         actions: [
-          if (widget.goal.status == 'completed')
+          if (widget.goal.status == 'completed') ...[
+            IconButton(
+              icon: const Icon(Icons.history_outlined),
+              tooltip: '历史趋势',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      GoalHistoryPage(goalTitle: widget.goal.title),
+                ),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.share_outlined),
               tooltip: '分享报告',
               onPressed: () => _showShareCard(context),
             ),
+          ],
         ],
       ),
       body: SafeArea(
